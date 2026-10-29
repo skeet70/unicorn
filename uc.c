@@ -1097,10 +1097,6 @@ uc_err uc_emu_start(uc_engine *uc, uint64_t begin, uint64_t until,
     // Avoid nested uc_emu_start saves wrong jit states.
     if (uc->nested_level == 0) {
         UC_INIT(uc);
-        // embedder: hook-scoped requests never carry into a run
-        uc->embedder_access_hook = false;
-        uc->embedder_refused = false;
-        uc->embedder_restart_request = false;
     }
 
     // Advance the nested levels. We must decrease the level count by one when
@@ -1226,6 +1222,12 @@ uc_err uc_emu_start(uc_engine *uc, uint64_t begin, uint64_t until,
             return err;
         }
     }
+    bool outer_access_hook = uc->nested_level > 1 && uc->embedder_access_hook;
+    bool outer_refused = uc->nested_level > 1 && uc->embedder_refused;
+    bool outer_restart = uc->nested_level > 1 && uc->embedder_restart_request;
+    uc->embedder_access_hook = false;
+    uc->embedder_refused = false;
+    uc->embedder_restart_request = false;
 
     // If UC_CTL_UC_USE_EXITS is set, then the @until param won't have any
     // effect. This is designed for the backward compatibility.
@@ -1262,6 +1264,9 @@ uc_err uc_emu_start(uc_engine *uc, uint64_t begin, uint64_t until,
     // once we are done.
     err = uc->invalid_error;
     uc->invalid_error = 0;
+    uc->embedder_access_hook = outer_access_hook;
+    uc->embedder_refused = outer_refused;
+    uc->embedder_restart_request = outer_restart;
     return err;
 }
 
