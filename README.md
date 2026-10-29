@@ -37,6 +37,7 @@ overhead and running the translation engine without a host JIT:
 - Observation of mapped host-memory pages during TLB fills.
 - Stoppable Thumb instruction-entry hooks with synchronized ITSTATE, including
   instructions whose condition fails (`uc_embedder_features()` bit 4).
+- Refusal of the current access from a memory read/write hook, before the access and the rest of its instruction (`uc_embedder_refuse_access`, `uc_embedder_features()` bit 32).
 - An optional Tiny Code Interpreter (TCI) backend, including Emscripten support.
 
 Extension exports use the `uc_embedder_` namespace. Their implementation and

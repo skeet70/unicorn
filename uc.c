@@ -191,6 +191,8 @@ const char *uc_strerror(uc_err code)
         return "Unhandled CPU exception (UC_ERR_EXCEPTION)";
     case UC_ERR_OVERFLOW:
         return "Provided buffer is too small (UC_ERR_OVERFLOW)";
+    case UC_ERR_EMBEDDER_REFUSED:
+        return "Memory hook refused the access (UC_ERR_EMBEDDER_REFUSED)";
     }
 }
 
@@ -1095,6 +1097,10 @@ uc_err uc_emu_start(uc_engine *uc, uint64_t begin, uint64_t until,
     // Avoid nested uc_emu_start saves wrong jit states.
     if (uc->nested_level == 0) {
         UC_INIT(uc);
+        // embedder: hook-scoped requests never carry into a run
+        uc->embedder_access_hook = false;
+        uc->embedder_refused = false;
+        uc->embedder_restart_request = false;
     }
 
     // Advance the nested levels. We must decrease the level count by one when
@@ -3273,16 +3279,37 @@ uc_err uc_embedder_request_restart(uc_engine *uc)
     return UC_ERR_OK;
 }
 
+// embedder: from a UC_HOOK_MEM_READ or UC_HOOK_MEM_WRITE callback, refuse the
+// access it observes. After the callback returns, no later hook sees the access,
+// the access, its device callbacks and any requested restart do not happen, and
+// the instruction ends with the PC naming it: uc_emu_start returns
+// UC_ERR_EMBEDDER_REFUSED. Earlier accesses of the instruction remain.
+// UC_ERR_ARG outside such a callback; UC_ERR_MODE with block-entry exits
+// (uc_embedder_set_block_exits) or parallel TCG.
+UNICORN_EXPORT
+uc_err uc_embedder_refuse_access(uc_engine *uc)
+{
+    if (!uc->embedder_access_hook) {
+        return UC_ERR_ARG;
+    }
+    if (uc->embedder_block_exits || uc->cpu->embedder_parallel_cpus) {
+        return UC_ERR_MODE;
+    }
+    uc->embedder_refused = true;
+    return UC_ERR_OK;
+}
+
 // embedder: feature bits of these exports. 1: with a translation filter installed,
 // bit 31 of a block hook's size reports Thumb state. 2: uc_embedder_accounting and
 // filter decision bit 4 (block hook on every entry); bit 30 marks fast blocks.
 // 4: stoppable Thumb code hooks publish ITSTATE and include failed conditions.
 // 8: accounting record includes the asynchronous pause_requested field.
 // 16: per-engine CF_PARALLEL selection for R-profile multi-core TCG.
+// 32: uc_embedder_refuse_access.
 UNICORN_EXPORT
 uint32_t uc_embedder_features(void)
 {
-    return 1 | 2 | 4 | 8 | 16;
+    return 1 | 2 | 4 | 8 | 16 | 32;
 }
 
 // Select parallel TCG translation semantics for this engine. The caller must

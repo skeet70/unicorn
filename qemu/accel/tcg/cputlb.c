@@ -1247,6 +1247,24 @@ static CPUTLBEntry *embedder_tlb_reload(CPUArchState *env, uintptr_t mmu_idx,
     return current;
 }
 
+/* embedder: a UC_HOOK_MEM_READ/WRITE hook refused the access at `paddr`
+   (uc_embedder_refuse_access). End the instruction before the access with
+   the PC naming it, dropping any restart request. On a stopped CPU the caller
+   returns without the access and the exit check after it ends the
+   instruction. */
+static void embedder_refuse_access(struct uc_struct *uc, hwaddr paddr,
+                                   uintptr_t retaddr)
+{
+    uc->embedder_refused = false;
+    uc->embedder_restart_request = false;
+    uc->invalid_addr = paddr;
+    uc->invalid_error = UC_ERR_EMBEDDER_REFUSED;
+    if (uc->nested_level > 0 && !uc->cpu->stopped) {
+        cpu_exit(uc->cpu);
+        cpu_loop_exit_restore(uc->cpu, retaddr);
+    }
+}
+
 /*
  * Return a ram_addr_t for the virtual address for execution.
  *
@@ -1765,6 +1783,8 @@ load_helper(CPUArchState *env, target_ulong addr, TCGMemOpIdx oi,
             embedder_restart_insn(uc->cpu, retaddr, true);
         }
         // this is date reading
+        uc->embedder_refused = false;
+        uc->embedder_access_hook = true;
         HOOK_FOREACH(uc, hook, UC_HOOK_MEM_READ) {
             if (hook->to_delete)
                 continue;
@@ -1776,8 +1796,13 @@ load_helper(CPUArchState *env, target_ulong addr, TCGMemOpIdx oi,
             }
             JIT_CALLBACK_GUARD(((uc_cb_hookmem_t)hook->callback)(env->uc, UC_MEM_READ, paddr, size, 0, hook->user_data));
             // the last callback may already asked to stop emulation
-            if (uc->stop_request)
+            if (uc->stop_request || uc->embedder_refused)
                 break;
+        }
+        uc->embedder_access_hook = false;
+        if (uc->embedder_refused) {
+            embedder_refuse_access(uc, paddr, retaddr);
+            return 0;
         }
 
         /* Unicorn: Previous callbacks may invalidate TLB, reload everything.
@@ -2299,6 +2324,8 @@ store_helper(CPUArchState *env, target_ulong addr, uint64_t val,
             embedder_restart_insn(uc->cpu, retaddr, true);
         }
         // Unicorn: callback on memory write
+        uc->embedder_refused = false;
+        uc->embedder_access_hook = true;
         HOOK_FOREACH(uc, hook, UC_HOOK_MEM_WRITE) {
             if (hook->to_delete)
                 continue;
@@ -2312,8 +2339,13 @@ store_helper(CPUArchState *env, target_ulong addr, uint64_t val,
             }
             JIT_CALLBACK_GUARD(((uc_cb_hookmem_t)hook->callback)(uc, UC_MEM_WRITE, paddr, size, val, hook->user_data));
             // the last callback may already asked to stop emulation
-            if (uc->stop_request)
+            if (uc->stop_request || uc->embedder_refused)
                 break;
+        }
+        uc->embedder_access_hook = false;
+        if (uc->embedder_refused) {
+            embedder_refuse_access(uc, paddr, retaddr);
+            return;
         }
         // embedder: a hook found this store overwrote translated code; the store
         // is redone in a block of its own so execution can stop right after

@@ -193,6 +193,8 @@ typedef enum uc_err {
     UC_ERR_RESOURCE,        // Insufficient resource: uc_emu_start()
     UC_ERR_EXCEPTION,       // Unhandled CPU exception
     UC_ERR_OVERFLOW,        // Provided buffer is not large enough: uc_reg_*2()
+    UC_ERR_EMBEDDER_REFUSED, // A memory hook refused the access
+                             // (uc_embedder_refuse_access): uc_emu_start()
 } uc_err;
 
 /*

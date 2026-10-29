@@ -476,6 +476,11 @@ struct uc_struct {
     GHashTable *embedder_io_pcs;  // guest PCs of instructions ending their block
     uint32_t embedder_retry_limit; // block hook: retranslate this block this short
     bool embedder_restart_request; // write hook: restart the storing instruction
+    // embedder: a UC_HOOK_MEM_READ or UC_HOOK_MEM_WRITE hook loop is running
+    // (the scope of uc_embedder_refuse_access)
+    bool embedder_access_hook;
+    // embedder: a hook in the running loop refused the access it observed
+    bool embedder_refused;
     bool embedder_tb_thumb;        // Thumb state of the block being translated
     bool embedder_tb_slow;         // the filter asked for the block hook on every entry
     // embedder: exit requests are tested inline at block entry only; guest
